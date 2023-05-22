@@ -1,3 +1,6 @@
+## Screenshot
+
+![App Screenshot](https://github.com/furqanx/ChatApps/assets/126537185/6180d88a-12a6-40fa-a73a-70c8a96381bb)
 
 # YoLo!
 
