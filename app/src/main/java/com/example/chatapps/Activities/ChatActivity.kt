@@ -1,105 +1,170 @@
-/** UsersActivity **/
 package com.example.chatapps.Activities
-
-import android.content.Context
-import android.content.Intent
-import androidx.appcompat.app.AppCompatActivity
+/** ChatActivity **/
 import android.os.Bundle
+import android.util.Log
+import android.widget.EditText
+import android.widget.ImageButton
 import android.widget.ImageView
 import android.widget.LinearLayout
+import android.widget.RelativeLayout
+import android.widget.TextView
 import android.widget.Toast
+import androidx.appcompat.app.AppCompatActivity
 import androidx.recyclerview.widget.LinearLayoutManager
 import androidx.recyclerview.widget.RecyclerView
 import com.bumptech.glide.Glide
+
 import com.example.chatapps.R
-import com.example.chatapps.Adapters.UserAdapter
-import com.example.chatapps.Firebase.FirebaseService
+import com.example.chatapps.RetrofitInstance
+import com.example.chatapps.Adapters.ChatAdapter
+import com.example.chatapps.Models.Chat
+import com.example.chatapps.Models.NotificationData
+import com.example.chatapps.Models.PushNotification
 import com.example.chatapps.Models.User
 
 import com.google.firebase.auth.FirebaseAuth
 import com.google.firebase.auth.FirebaseUser
 import com.google.firebase.database.*
-//import com.google.firebase.iid.FirebaseInstanceId
-import com.google.firebase.messaging.FirebaseMessaging
+import com.google.gson.Gson
 import de.hdodenhof.circleimageview.CircleImageView
-//import kotlinx.android.synthetic.main.activity_users.*
+//import kotlinx.android.synthetic.main.activity_chat.*
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
+import java.lang.Exception
+import java.util.*
+import kotlin.collections.HashMap
 
-class UsersActivity : AppCompatActivity() {
-    // Mendefinisikan properti komponen-komponen
+class ChatActivity : AppCompatActivity() {
+    var firebaseUser: FirebaseUser? = null
+    var reference: DatabaseReference? = null
+    var chatList = ArrayList<Chat>()
+    var topic = ""
+    // Mendapatkan referensi ke semua komponen dalam layout
     lateinit var imgBack: ImageView
+    lateinit var tvUserName: TextView
     lateinit var imgProfile: CircleImageView
-    lateinit var userRecyclerView: RecyclerView
-    var userList = ArrayList<User>()
+    lateinit var chatRecyclerView: RecyclerView
+    lateinit var etMessage: EditText
+    lateinit var btnSendMessage: ImageButton
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        setContentView(R.layout.activity_users)
+        setContentView(R.layout.activity_chat)
 
-        // Inisialisasi komponen-komponen
+        chatRecyclerView.layoutManager = LinearLayoutManager(this, RecyclerView.VERTICAL, false)
+
         imgBack = findViewById(R.id.imgBack)
+        tvUserName = findViewById(R.id.tvUserName)
         imgProfile = findViewById(R.id.imgProfile)
-        userRecyclerView = findViewById(R.id.userRecyclerView)
+        chatRecyclerView = findViewById(R.id.chatRecyclerView)
+        etMessage = findViewById(R.id.etMessage)
+        btnSendMessage = findViewById(R.id.btnSendMessage)
 
-        FirebaseService.sharedPref = getSharedPreferences("sharedPref", MODE_PRIVATE)
-        FirebaseMessaging.getInstance().token.addOnSuccessListener { token ->
-            FirebaseService.token = token
-        }
+        var intent = getIntent()
+        var userId = intent.getStringExtra("userId")
+        var userName = intent.getStringExtra("userName")
 
-        userRecyclerView.layoutManager = LinearLayoutManager(this, RecyclerView.VERTICAL, false)
 
         imgBack.setOnClickListener {
             onBackPressed()
         }
 
-        imgProfile.setOnClickListener {
-            val intent = Intent(
-                this@UsersActivity,
-                ProfileActivity::class.java
-            )
-            startActivity(intent)
-        }
-        getUsersList()
-    }
-
-    fun getUsersList() {
-        val firebase: FirebaseUser = FirebaseAuth.getInstance().currentUser!!
-
-        var userid = firebase.uid
-        FirebaseMessaging.getInstance().subscribeToTopic("/topics/$userid")
+        firebaseUser = FirebaseAuth.getInstance().currentUser
+        reference = FirebaseDatabase.getInstance().getReference("Users").child(userId!!)
 
 
-        val databaseReference: DatabaseReference =
-            FirebaseDatabase.getInstance().getReference("Users")
 
 
-        databaseReference.addValueEventListener(object : ValueEventListener {
+        reference!!.addValueEventListener(object : ValueEventListener {
             override fun onCancelled(error: DatabaseError) {
-                Toast.makeText(applicationContext, error.message, Toast.LENGTH_SHORT).show()
+                TODO("Not yet implemented")
             }
 
             override fun onDataChange(snapshot: DataSnapshot) {
-                userList.clear()
-                val currentUser = snapshot.getValue(User::class.java)
-                if (currentUser!!.profileImage == ""){
+
+                val user = snapshot.getValue(User::class.java)
+                tvUserName.text = user!!.userName
+                if (user.profileImage == "") {
                     imgProfile.setImageResource(R.drawable.profile_image)
-                }else{
-                    Glide.with(this@UsersActivity).load(currentUser.profileImage).into(imgProfile)
+                } else {
+                    Glide.with(this@ChatActivity).load(user.profileImage).into(imgProfile)
+                }
+            }
+        })
+
+        btnSendMessage.setOnClickListener {
+            var message: String = etMessage.text.toString()
+
+            if (message.isEmpty()) {
+                Toast.makeText(applicationContext, "message is empty", Toast.LENGTH_SHORT).show()
+                etMessage.setText("")
+            } else {
+                sendMessage(firebaseUser!!.uid, userId, message)
+                etMessage.setText("")
+                topic = "/topics/$userId"
+                PushNotification(NotificationData( userName!!,message),
+                    topic).also {
+                    sendNotification(it)
                 }
 
+            }
+        }
+
+        readMessage(firebaseUser!!.uid, userId)
+    }
+
+    private fun sendMessage(senderId: String, receiverId: String, message: String) {
+        var reference: DatabaseReference? = FirebaseDatabase.getInstance().getReference()
+
+        var hashMap: HashMap<String, String> = HashMap()
+        hashMap.put("senderId", senderId)
+        hashMap.put("receiverId", receiverId)
+        hashMap.put("message", message)
+
+        reference!!.child("Chat").push().setValue(hashMap)
+
+    }
+
+    fun readMessage(senderId: String, receiverId: String) {
+        val databaseReference: DatabaseReference =
+            FirebaseDatabase.getInstance().getReference("Chat")
+
+        databaseReference.addValueEventListener(object : ValueEventListener {
+            override fun onCancelled(error: DatabaseError) {
+                TODO("Not yet implemented")
+            }
+
+            override fun onDataChange(snapshot: DataSnapshot) {
+                chatList.clear()
                 for (dataSnapShot: DataSnapshot in snapshot.children) {
-                    val user = dataSnapShot.getValue(User::class.java)
+                    val chat = dataSnapShot.getValue(Chat::class.java)
 
-                    if (!user!!.userId.equals(firebase.uid)) {
-
-                        userList.add(user)
+                    if (chat!!.senderId.equals(senderId) && chat!!.receiverId.equals(receiverId) ||
+                        chat!!.senderId.equals(receiverId) && chat!!.receiverId.equals(senderId)
+                    ) {
+                        chatList.add(chat)
                     }
                 }
 
-                val userAdapter = UserAdapter(this@UsersActivity, userList)
+                val chatAdapter = ChatAdapter(this@ChatActivity, chatList)
 
-                userRecyclerView.adapter = userAdapter
+                chatRecyclerView.adapter = chatAdapter
             }
-
         })
     }
+
+    private fun sendNotification(notification: PushNotification) = CoroutineScope(Dispatchers.IO).launch {
+        try {
+            val response = RetrofitInstance.api.postNotification(notification)
+            if(response.isSuccessful) {
+                Log.d("TAG", "Response: ${Gson().toJson(response)}")
+            } else {
+                Log.e("TAG", response.errorBody()!!.string())
+            }
+        } catch(e: Exception) {
+            Log.e("TAG", e.toString())
+        }
+    }
+
 }
